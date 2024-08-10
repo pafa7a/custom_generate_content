@@ -1,0 +1,8 @@
+name: 'Custom Generate Content'
+type: module
+description: 'Custom module to generate specific paragraphs with Devel Generate.'
+core_version_requirement: ^10 || ^11
+package: Custom
+dependencies:
+  - paragraphs
+  - devel
