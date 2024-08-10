@@ -6,3 +6,4 @@ package: Custom
 dependencies:
   - paragraphs
   - devel
+  - devel_generate
