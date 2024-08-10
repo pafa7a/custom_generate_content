@@ -3,39 +3,95 @@
 namespace Drupal\custom_generate_content\Plugin\DevelGenerate;
 
 use Drupal\Component\Utility\Random;
+use Drupal\Core\Entity\EntityFieldManagerInterface;
+use Drupal\Core\Entity\EntityStorageInterface;
 use Drupal\Core\Field\FieldDefinitionInterface;
 use Drupal\Core\Field\FieldStorageDefinitionInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
+use Drupal\Core\Routing\UrlGeneratorInterface;
 use Drupal\devel_generate\DevelGenerateBase;
 use Drupal\node\Entity\Node;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
- * Provides a LandingPage plugin.
+ * Provides a ContentWithParagraphs plugin.
  *
  * @DevelGenerate(
- *   id = "landing_page",
- *   label = "Landing Page",
- *   description = "Generate landing pages with specific paragraphs.",
- *   url = "landing_page",
+ *   id = "content_with_paragraphs",
+ *   label = "Content With Paragraphs",
+ *   description = "Generate content with all enabled paragraph types.",
+ *   url = "content_with_paragraphs",
  *   permission = "administer nodes",
  *   settings = {
- *     "num" = 2,
- *     "prefix" = "[DevelGenerated]",
- *     "all_paragraphs" = TRUE,
- *     "kill" = FALSE
+ *     "num" = 1,
+ *     "prefix" = "[Custom Generated]",
+ *     "all_paragraphs" = TRUE
  *   }
  * )
  */
-class LandingPage extends DevelGenerateBase implements ContainerFactoryPluginInterface {
+class ContentWithParagraphs extends DevelGenerateBase implements ContainerFactoryPluginInterface {
+
+  /**
+   * The node type storage.
+   */
+  protected EntityStorageInterface $nodeTypeStorage;
+
+  /**
+   * The url generator service.
+   */
+  protected UrlGeneratorInterface $urlGenerator;
+
+  /**
+   * The entity field manager.
+   */
+  protected EntityFieldManagerInterface $entityFieldManager;
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition): static {
+    $entity_type_manager = $container->get('entity_type.manager');
+    $instance = parent::create($container, $configuration, $plugin_id, $plugin_definition);
+    $instance->nodeTypeStorage = $entity_type_manager->getStorage('node_type');
+    $instance->urlGenerator = $container->get('url_generator');
+    $instance->entityFieldManager = $container->get('entity_field.manager');
+
+    return $instance;
+  }
 
   /**
    * {@inheritdoc}
    */
   public function settingsForm(array $form, FormStateInterface $form_state): array {
+    $types = $this->nodeTypeStorage->loadMultiple();
+    if (empty($types)) {
+      $create_url = $this->urlGenerator->generateFromRoute('node.type_add');
+      $this->setMessage($this->t('You do not have any content types that can be generated. <a href=":create-type">Go create a new content type</a>', [':create-type' => $create_url]), 'error');
+      return [];
+    }
+
+    $options = [];
+
+    foreach ($types as $type) {
+      $options[$type->id()] = [
+        'type' => ['#markup' => $type->label()],
+      ];
+    }
+
+    $header = [
+      'type' => $this->t('Content type'),
+    ];
+
+    $form['node_types'] = [
+      '#type' => 'tableselect',
+      '#header' => $header,
+      '#options' => $options,
+    ];
+
     $form['num'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('How many landing pages would you like to generate?'),
+      '#title' => $this->t('How many pages would you like to generate per type?'),
       '#default_value' => $this->getSetting('num'),
       '#size' => 10,
     ];
@@ -53,53 +109,64 @@ class LandingPage extends DevelGenerateBase implements ContainerFactoryPluginInt
       '#default_value' => $this->getSetting('all_paragraphs'),
     ];
 
-    $form['kill'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Delete all landing pages before generating new ones.'),
-      '#default_value' => $this->getSetting('kill'),
-    ];
-
     return $form;
   }
 
   /**
    * {@inheritdoc}
    */
-  protected function generateElements(array $values): void {
+  protected function generateElements(array $values): void
+  {
+    $node_types = array_filter($values['node_types']);
     $num = $values['num'];
     $prefix = $values['prefix'];
     $all_paragraphs = $values['all_paragraphs'];
     if ($prefix) {
       $prefix = $prefix . ' ';
     }
-    $kill = $values['kill'];
 
-    if ($kill) {
-      $this->deleteExistingLandingPages();
-      $this->setMessage($this->t('Old landing pages have been deleted.'));
-    }
+    foreach ($node_types as $node_type) {
+      for ($i = 0; $i < $num; $i++) {
+        $node = Node::create([
+          'type' => $node_type,
+          'title' => $prefix . $this->getRandom()->sentences(1, TRUE),
+        ]);
 
-    for ($i = 0; $i < $num; $i++) {
-      $node = Node::create([
-        'type' => 'landing_page',
-        'title' => $prefix . $this->getRandom()->sentences(1, TRUE),
-      ]);
+        $fields_to_skip = [];
 
-      $fields_to_skip = [];
-      if ($all_paragraphs) {
-        $fields_to_skip[] = 'field_components';
+
+        if ($all_paragraphs) {
+
+          $instances = $this->entityFieldManager->getFieldDefinitions($node->getEntityTypeId(), $node->bundle());
+          foreach ($instances as $instance) {
+            $field_storage = $instance->getFieldStorageDefinition();
+            $field_name = $field_storage->getName();
+            if ($field_storage->isBaseField()) {
+              continue;
+            }
+            if ($field_storage->getType() === 'entity_reference_revisions') {
+              if ($field_storage->getSetting('target_type') === 'paragraph') {
+                if ($field_storage->getCardinality() === -1) {
+                  $fields_to_skip[] = $field_storage->getName();
+                }
+              }
+            }
+          }
+        }
+
+        $this->populateFields($node, $fields_to_skip);
+
+        if ($all_paragraphs) {
+          foreach ($fields_to_skip as $field_name) {
+            $definitions = $node->{$field_name}->getFieldDefinition();
+            $field_definitions = $this->generateValues($definitions);
+            $node->{$field_name}->setValue($field_definitions);
+          }
+        }
+        $node->save();
+
+        $this->setMessage($this->t('Created landing page node with ID @id', ['@id' => $node->id()]));
       }
-
-      $this->populateFields($node, $fields_to_skip);
-
-      if ($all_paragraphs) {
-        $definitions = $node->field_components->getFieldDefinition();
-        $field_components_definition = $this->generateValues($definitions);
-        $node->field_components->setValue($field_components_definition);
-      }
-      $node->save();
-
-      $this->setMessage($this->t('Created landing page node with ID @id', ['@id' => $node->id()]));
     }
   }
 
