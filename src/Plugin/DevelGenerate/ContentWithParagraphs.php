@@ -105,7 +105,7 @@ class ContentWithParagraphs extends DevelGenerateBase implements ContainerFactor
 
     $form['all_paragraphs'] = [
       '#type' => 'checkbox',
-      '#title' => $this->t('Should it add all possible paragraphs to field_components?'),
+      '#title' => $this->t('Should it add all possible paragraphs to paragraph reference fields?'),
       '#default_value' => $this->getSetting('all_paragraphs'),
     ];
 
