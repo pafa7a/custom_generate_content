@@ -115,8 +115,7 @@ class ContentWithParagraphs extends DevelGenerateBase implements ContainerFactor
   /**
    * {@inheritdoc}
    */
-  protected function generateElements(array $values): void
-  {
+  protected function generateElements(array $values): void {
     $node_types = array_filter($values['node_types']);
     $num = $values['num'];
     $prefix = $values['prefix'];
@@ -165,7 +164,7 @@ class ContentWithParagraphs extends DevelGenerateBase implements ContainerFactor
         }
         $node->save();
 
-        $this->setMessage($this->t('Created landing page node with ID @id', ['@id' => $node->id()]));
+        $this->setMessage($this->t('Created node with ID @id', ['@id' => $node->id()]));
       }
     }
   }
@@ -180,21 +179,6 @@ class ContentWithParagraphs extends DevelGenerateBase implements ContainerFactor
     ];
   }
 
-  /**
-   * Delete existing landing pages if the kill option is selected.
-   */
-  protected function deleteExistingLandingPages() {
-    $nids = \Drupal::entityQuery('node')
-      ->condition('type', 'landing_page')
-      ->accessCheck(FALSE)
-      ->execute();
-
-    if ($nids) {
-      $storage_handler = \Drupal::entityTypeManager()->getStorage('node');
-      $entities = $storage_handler->loadMultiple($nids);
-      $storage_handler->delete($entities);
-    }
-  }
   public static function generateValues(FieldDefinitionInterface $field_definition) {
     $selection_manager = \Drupal::service('plugin.manager.entity_reference_selection');
     $entity_manager = \Drupal::entityTypeManager();
